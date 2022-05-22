@@ -1,0 +1,353 @@
+## Bellabeat Case Study - Examining and Cleaning Data in Google BigQuery
+
+# Selecting distinct IDs to find number of unique participants with daily activity data
+SELECT DISTINCT Id
+FROM `core-avenue-344622.Case.DailyActivity`
+# 33 unique IDs reported in DailyActivity table
+;
+
+# Selecting unique IDs in SleepLog table
+SELECT DISTINCT Id 
+FROM `core-avenue-344622.Case.SleepLog`
+# 24 unique IDs reported in SleepLog table
+;
+
+# Selecting unique IDs in WeightLog table
+SELECT DISTINCT Id 
+FROM `core-avenue-344622.Case.WeightLog`
+# 8 unique IDs reported in WeightLog table
+;
+
+# Finding start and end date of data tracked in DailyActivity table
+SELECT MIN(ActivityDate) AS startDate, MAX(ActivityDate) AS endDate
+FROM `core-avenue-344622.Case.DailyActivity`
+# Start date 2016-4-12, end date 2016-5-12
+;
+
+# Finding start and end date of data tracked in SleepLog table
+SELECT MIN(SleepDay) AS startDate, MAX(SleepDay) AS endDate
+FROM `core-avenue-344622.Case.SleepLog`
+# Start date 2016-4-12, end date 2016-5-12
+;
+
+# Finding start and end date of data tracked in WeightLog table
+SELECT MIN(Date) AS startDate, MAX(Date) AS endDate
+FROM `core-avenue-344622.Case.WeightLog`
+# Start date 2016-4-12, end date 2016-5-12
+;
+
+# Finding duplicate rows, if any, in DailyActivity
+SELECT ID, ActivityDate, COUNT(*) AS numRow
+FROM `core-avenue-344622.Case.DailyActivity`
+GROUP BY ID, ActivityDate # Each row is uniquely identified by the ID and ActivityDate colummns
+HAVING numRow > 1
+# No results, no duplicate rows in the DailyActivity table
+;
+
+# Finding duplicate rows, if any, in SleepLog
+SELECT *, COUNT(*) AS numRow
+FROM `core-avenue-344622.Case.SleepLog`
+GROUP BY Id, SleepDay, TotalSleepRecords, TotalTimeInBed, TotalMinutesAsleep
+HAVING numRow > 1
+# 3 duplicate rows returned
+;
+
+# Creating new SleepLog table with all distinct values
+CREATE TABLE `core-avenue-344622.Case.SleepLog2` AS SELECT DISTINCT * FROM `core-avenue-344622.Case.SleepLog`
+;
+
+# Double checking new table no longer has duplicate rows
+SELECT *, COUNT(*) AS numRow
+FROM `core-avenue-344622.Case.SleepLog2`
+GROUP BY Id, SleepDay, TotalSleepRecords, TotalTimeInBed, TotalMinutesAsleep
+HAVING numRow > 1
+# 0 duplicate rows returned in new table; duplicate rows deleted
+;
+
+# Dropping original SleepLog table
+DROP TABLE `core-avenue-344622.Case.SleepLog`
+;
+
+# Creating new SleepLog table
+CREATE TABLE `core-avenue-344622.Case.SleepLog` AS SELECT DISTINCT * FROM `core-avenue-344622.Case.SleepLog2`
+;
+
+# Drop previous SleepLog2 table
+DROP TABLE `core-avenue-344622.Case.SleepLog2`
+;
+
+# Finding duplicate rows, if any, in WeightLog table
+SELECT *, COUNT(*) AS numRow
+FROM `core-avenue-344622.Case.WeightLog`
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+HAVING numRow > 1
+;
+# 0 duplicates returned
+
+# Converting column from Boolean to Integer values to make processing easier
+SELECT IsManualReport, CAST(IsManualReport as INT64) AS ManualReport
+FROM `core-avenue-344622.Case.WeightLog`
+;
+
+UPDATE `core-avenue-344622.Case.WeightLog`
+SET ManualReport = 1
+WHERE IsManualReport = TRUE
+;
+# Updated 41 rows
+
+UPDATE `core-avenue-344622.Case.WeightLog`
+SET ManualReport = 0
+WHERE IsManualReport = FALSE
+;
+# Updated 26 Rows
+
+ALTER TABLE `core-avenue-344622.Case.WeightLog` DROP COLUMN IsManualReport
+;
+# Deleted column IsManualReport
+
+# Checking all IDs in DailyActivity have same number of characters
+SELECT LENGTH(CAST(Id as STRING))
+FROM `core-avenue-344622.Case.DailyActivity`
+;
+
+# Checking all IDs in DailyActivity with more or less than 10 characters
+SELECT Id
+FROM `core-avenue-344622.Case.DailyActivity`
+WHERE LENGTH(CAST(Id AS STRING)) > 10
+OR LENGTH(CAST(Id AS STRING)) < 10 
+;
+# No values returned
+
+# Checking all IDs in SleepLog with more or less than 10 characters
+SELECT Id
+FROM `core-avenue-344622.Case.SleepLog`
+WHERE LENGTH(CAST(Id AS STRING)) > 10
+OR LENGTH(CAST(Id AS STRING)) < 10 
+;
+# No values returned
+
+# Checking all IDs in WeightLog with more or less than 10 characters
+SELECT Id
+FROM `core-avenue-344622.Case.WeightLog`
+WHERE LENGTH(CAST(Id AS STRING)) > 10
+OR LENGTH(CAST(Id AS STRING)) < 10 
+;
+# No values returned
+
+# Looking at LogIDs in WeightLog table to determine if they are it's primary key
+SELECT LogID, COUNT(LogID) AS numLogIDs
+FROM `core-avenue-344622.Case.WeightLog`
+GROUP BY LogId
+HAVING numLogIDs > 1
+ORDER BY numLogIDs DESC
+;
+# 10 LogIDs with a count greater than 1, suggesting duplicates or LogID is not the primary key
+
+# Looking at records with matching LogIds to see if they are duplicates
+SELECT *
+FROM `core-avenue-344622.Case.WeightLog`
+WHERE LogId IN(
+  SELECT LogId
+  FROM `core-avenue-344622.Case.WeightLog`
+  GROUP BY LogId
+  HAVING COUNT(LogId) > 1
+  )
+ORDER BY LogId
+;
+# Duplicate LogIds occur on the same date but don't have anything else in common
+
+#Examining records with 0 in TotalSteps column of DailyActivity table
+SELECT Id, COUNT(*) AS numZeroStepsDays
+FROM `core-avenue-344622.Case.DailyActivity`
+WHERE TotalSteps = 0
+GROUP BY Id
+ORDER BY numZeroStepsDays DESC
+;
+# 15 participants with zero step days
+
+#Examining total number of days with zero steps
+SELECT SUM(numZeroStepsDays) AS totalDaysZeroSteps
+FROM (
+  SELECT COUNT(*) AS numZeroStepsDays
+  FROM `core-avenue-344622.Case.DailyActivity`
+  WHERE TotalSteps = 0
+) AS z
+;
+# 77 days with zero steps
+
+# Investigating attributes of zero steps days
+SELECT *, ROUND((SedentaryMinutes / 60), 2) AS SedentaryHours
+FROM `core-avenue-344622.Case.DailyActivity`
+WHERE TotalSteps = 0
+;
+# 24 total sedentary hours suggests users just didn't wear their FitBit that day
+
+# Deleteing Rows where TotalSteps = 0
+DELETE FROM `core-avenue-344622.Case.DailyActivity`
+WHERE TotalSteps = 0
+;
+# 77 rows deleted
+
+### Bellabeat Case Study - Queries
+
+# Selecting dates and corresponding days of the week to identify weekdays and weekends
+SELECT ActivityDate, FORMAT_DATE("%A", ActivityDate) AS DayOfWeek
+FROM `core-avenue-344622.Case.DailyActivity`
+;
+
+SELECT ActivityDate,
+  CASE
+    WHEN DayOfWeek = "Monday" THEN "Weekday"
+    WHEN DayOfWeek = "Tuesday" THEN "Weekday"
+    WHEN DayOfWeek = "Wednesday" THEN "Weekday"
+    WHEN DayOfWeek = "Thursday" THEN "Weekday"
+    WHEN DayOfWeek = "Friday" THEN "Weekday"
+    ELSE "Weekend"
+  END AS PartOfWeek
+FROM
+  (SELECT *, FORMAT_DATE("%A", ActivityDate) AS DayOfWeek
+  FROM `core-avenue-344622.Case.DailyActivity`) as temp
+;
+
+# Investigating average steps, distance, and calories on weekdays v. weekends
+SELECT PartOfWeek,AVG(TotalSteps) AS AvgSteps, AVG(TotalDistance) AS AvgDistance, AVG(Calories) AS AvgCalories
+FROM
+  (SELECT *,
+    CASE
+      WHEN DayOfWeek = "Monday" THEN "Weekday"
+      WHEN DayOfWeek = "Tuesday" THEN "Weekday"
+      WHEN DayOfWeek = "Wednesday" THEN "Weekday"
+      WHEN DayOfWeek = "Thursday" THEN "Weekday"
+      WHEN DayOfWeek = "Friday" THEN "Weekday"
+    ELSE "Weekend"
+  END AS PartOfWeek
+FROM
+  (SELECT *, FORMAT_DATE("%A", ActivityDate) AS DayOfWeek
+  FROM `core-avenue-344622.Case.DailyActivity`) as temp
+  ) as temp2
+GROUP BY  PartOfWeek
+;
+
+# Looking at average steps, distance, and calories per day of the week
+SELECT FORMAT_DATE("%A", ActivityDate) AS DayOfWeek, AVG(TotalSteps) AS AvgSteps, AVG(TotalDistance) as AvgDistance, AVG(Calories) AS AvgCalories
+FROM `core-avenue-344622.Case.DailyActivity`
+GROUP BY DayOfWeek
+ORDER BY AvgSteps DESC
+;
+
+# Investigating average amount of time spent asleep and average time to fall asleep per day of the week
+SELECT FORMAT_DATE("%A", SleepDay) AS DayOfWeek, AVG(TotalMinutesAsleep) AS AvgMinutesAsleep, AVG(TotalMinutesAsleep / 60) as AvgHoursAsleep, AVG(TotalTimeInBed - TotalMinutesAsleep) AS AvgTimeInMinutesToFallAsleep
+FROM `core-avenue-344622.Case.SleepLog`
+GROUP BY DayOfWeek
+ORDER BY AvgHoursAsleep DESC
+;
+
+# Left join all 3 tables
+SELECT *
+FROM `core-avenue-344622.Case.DailyActivity`AS d
+LEFT JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.ActivityDate = s.SleepDay AND d.Id = s.Id
+LEFT JOIN `core-avenue-344622.Case.WeightLog` AS w
+ON s.SleepDay = w.Date AND s.Id = w.Id
+ORDER BY d.Id, DATE
+;
+
+# Inner joining all 3 tables
+SELECT *
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.ActivityDate = s.SleepDay AND d.Id = s.Id
+JOIN `core-avenue-344622.Case.WeightLog` AS w
+ON s.SleepDay = w.Date AND s.ID = w.Id
+ORDER BY d.Id, Date
+;
+# 35 rows returned
+
+# Finding unique participants in the DailyActivity who do not have records in either the SLeepLog or WeightLog tables (or both)
+SELECT DISTINCT Id
+FROM `core-avenue-344622.Case.DailyActivity`WHERE Id NOT IN (
+  SELECT d.ID
+  FROM `core-avenue-344622.Case.DailyActivity` AS d
+  JOIN `core-avenue-344622.Case.SleepLog` AS s
+  ON d.ActivityDate = s.SleepDay AND d.ID = s.Id
+  JOIN `core-avenue-344622.Case.WeightLog` AS w
+  ON s.SleepDay = w.Date AND s.Id = w.Id
+)
+;
+# Of 33 participants in the DailyActivity table, 28 do not have records in either the SleepLog or WeightLog tables
+
+# Investigating instances where users don't have records in SleepLog based on day of the week
+SELECT FORMAT_DATE("%A", ActivityDate) AS DayOfWeek, COUNT(*) AS num
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+  LEFT JOIN `core-avenue-344622.Case.SleepLog` AS s
+  ON d.ActivityDate = s.SleepDay AND d.Id = s.Id
+WHERE s.TotalMinutesAsleep IS NULL
+GROUP BY DayOfWeek
+ORDER BY num DESC
+;
+
+# Looking into calories and actie minutes
+SELECT Id, ActivityDate, Calories, SedentaryMinutes, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes
+FROM `core-avenue-344622.Case.DailyActivity`
+;
+
+# Looking at calories and total steps
+SELECT Id, ActivityDate, Calories, TotalSteps
+FROM `core-avenue-344622.Case.DailyActivity`
+;
+
+# Looking at calories and total minutes asleep
+SELECT d.Id, d.ActivityDate, Calories, (TotalMinutesAsleep/60) AS TotalHoursAsleep
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+INNER JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.Id = s.Id AND d.ActivityDate = s.SleepDay
+;
+
+# Looking at calories and total minutes & hours asleep from day before
+SELECT d.Id, d.ActivityDate, Calories, TotalMinutesAsleep,
+  LAG(TotalMinutesAsleep, 1) OVER (ORDER BY d.Id, d.ActivityDate) AS MinutesSleptDayBefore,
+  LAG(TotalMinutesAsleep, 1) OVER (ORDER BY d.Id, d.ActivityDate) / 60 AS HoursSleptDayBefore
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+INNER JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.Id = s.Id AND d.ActivityDate = s.SleepDay
+;
+
+# Looking at manual reports vs. automated reports in WeightLog table; also looking at average weight of participants who were generated manually vs. automatically
+SELECT ManualReport, COUNT(DISTINCT Id)
+FROM `core-avenue-344622.Case.WeightLog`
+GROUP BY ManualReport
+;
+
+SELECT ManualReport, COUNT(*) AS  num_reports, AVG(WeightPounds) AS avg_weight
+FROM `core-avenue-344622.Case.WeightLog`
+GROUP BY ManualReport
+;
+
+# Investigating all Minutes (Inc. new column of total minutes) in DailyActivity table
+SELECT Id, ActivityDate, (SedentaryMinutes + LightlyActiveMinutes + FairlyActiveMinutes + VeryActiveMinutes) AS TotalMinutes, SedentaryMinutes, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes
+FROM `core-avenue-344622.Case.DailyActivity`
+;
+
+# Looking at non-sedentary minutes and total sleep
+SELECT d.Id, ActivityDate, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes, (LightlyActiveMinutes+FairlyActiveMinutes+VeryActiveMinutes) AS TotalMinutes, TotalMinutesAsleep, (TotalTimeInBed-TotalMinutesAsleep) AS MinutesToFallAsleep
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.Id = s.Id AND ActivityDate = SleepDay
+;
+
+# Looking at number of days where total steps is equal to or greater than the CDC-recommended amount of 10,000
+SELECT FORMAT_DATE("%A", ActivityDate) AS DayOfWeek, COUNT(*)
+FROM `core-avenue-344622.Case.DailyActivity`
+WHERE TotalSteps >= 10000
+GROUP BY DayOfWeek
+;
+
+# Looking at number of days where users got the CDC-recommended amount of sleep (7-9 hours per night)
+SELECT FORMAT_DATE("%A", ActivityDate) AS DayOfWeek, COUNT(*) AS NumDays
+FROM `core-avenue-344622.Case.DailyActivity` AS d
+JOIN `core-avenue-344622.Case.SleepLog` AS s
+ON d.ID = s.Id AND d.ActivityDate = s.SleepDay
+WHERE TotalMinutesAsleep >= 420 and TotalMinutesAsleep >= 540
+GROUP BY DayOfWeek
+ORDER BY NumDays DESC
+;
